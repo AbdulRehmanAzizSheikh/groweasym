@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Menu">
+  <defs>
+    <linearGradient id="gsTopLeft" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#EC1C6E"/>
+      <stop offset="1" stop-color="#F2268F"/>
+    </linearGradient>
+    <linearGradient id="gsBottomLeft" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E11D74"/>
+      <stop offset="1" stop-color="#B92BC4"/>
+    </linearGradient>
+    <linearGradient id="gsBottomRight" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#B92BC4"/>
+      <stop offset="1" stop-color="#8A2BE2"/>
+    </linearGradient>
+    <linearGradient id="gsSparkle" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#EC1C6E"/>
+      <stop offset="0.55" stop-color="#C22BC0"/>
+      <stop offset="1" stop-color="#8A2BE2"/>
+    </linearGradient>
+  </defs>
+
+  <!-- top-left tile -->
+  <rect x="42" y="42" width="180" height="180" rx="46"
+        fill="none" stroke="url(#gsTopLeft)" stroke-width="27"/>
+
+  <!-- bottom-left tile -->
+  <rect x="42" y="290" width="180" height="180" rx="46"
+        fill="none" stroke="url(#gsBottomLeft)" stroke-width="27"/>
+
+  <!-- bottom-right tile -->
+  <rect x="290" y="290" width="180" height="180" rx="46"
+        fill="none" stroke="url(#gsBottomRight)" stroke-width="27"/>
+
+  <!-- four-point sparkle, top-right -->
+  <path fill="url(#gsSparkle)"
+        d="M383 22c9 0 15 6 18 15l16 46c3 9 9 15 18 18l46 16c9 3 15 9 15 18
+           s-6 15-15 18l-46 16c-9 3-15 9-18 18l-16 46c-3 9-9 15-18 15
+           s-15-6-18-15l-16-46c-3-9-9-15-18-18l-46-16c-9-3-15-9-15-18
+           s6-15 15-18l46-16c9-3 15-9 18-18l16-46c3-9 9-15 18-15Z"/>
+</svg>
