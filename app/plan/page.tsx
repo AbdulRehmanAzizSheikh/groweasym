@@ -44,11 +44,11 @@ export default function Plans() {
             <div className="gsa-plan__price">
               <span>₹ {plan.price.toLocaleString("en-IN")}</span>
               <img
-                src={ASSETS.planBadge}
+                src={ASSETS.productCocoa}
                 alt=""
                 width={50}
                 height={50}
-                style={{ borderRadius: 6 }}
+                style={{ borderRadius: 6, objectFit: "cover" }}
               />
             </div>
 

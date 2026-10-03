@@ -21,21 +21,37 @@ check() {
   if [ "$status" -eq "$want" ]; then ok "$name"; else bad "$name" "curl exit $status, wanted $want"; fi
 }
 
-# jcheck <name> <json> <jq-ish python expr on d>
+# jcheck <name> <json> <python expression over `d`>
+# The JSON body is handed to python as argv, never interpolated into the -c
+# string: responses contain double quotes that would close the shell string.
 jcheck() {
-  local name="$1" json="$2" expr="$3"
-  if python3 -c "
-import json,sys
-d=json.loads('''$json''')
-sys.exit(0 if ($expr) else 1)
-" 2>/dev/null; then ok "$name"; else bad "$name" "$json"; fi
+  local name="$1" json="$2" expr="$3" out rc
+  out="$(python3 - "$json" "$expr" <<'PY' 2>&1
+import json, sys
+try:
+    d = json.loads(sys.argv[1])
+except Exception as e:
+    print("BADJSON %s" % e)
+    sys.exit(2)
+try:
+    ok = eval(sys.argv[2], {"d": d, "json": json, "len": len, "abs": abs,
+                           "all": all, "any": any, "str": str})
+except Exception as e:
+    print("EVALERR %s" % e)
+    sys.exit(3)
+sys.exit(0 if ok else 1)
+PY
+)"
+  rc=$?
+  if [ "$rc" -eq 0 ]; then ok "$name"; else bad "$name" "${out} | ${json}"; fi
 }
 
 api()  { curl -s -b "$WORK/u.txt" -c "$WORK/u.txt" "$@"; }
 noauth(){ curl -s "$@"; }
 admin(){ curl -s -b "$WORK/a.txt" -c "$WORK/a.txt" "$@"; }
 
-MOBILE="9$(date +%s | tail -c 9)"
+# 10-digit unique mobile, since register enforces 10-15 digits.
+MOBILE="98$(printf '%08d' $(( $(date +%s) % 100000000 )))"
 
 head_ "1. Registration"
 R=$(curl -s -X POST "$BASE/api/auth/register" -c "$WORK/u.txt" \
@@ -103,32 +119,32 @@ jcheck "correct admin password accepted" "$R" "d.get('success') is True"
 
 head_ "6. Admin can credit and debit"
 U=$(admin "$BASE/api/admin/users")
-UID=$(python3 -c "
+TARGET_ID=$(python3 -c "
 import json,sys
 d=json.loads('''$U''')
 m=[u for u in d['users'] if u['mobileNumber']=='$MOBILE']
 print(m[0]['id'] if m else '')
 " 2>/dev/null)
-if [ -n "$UID" ]; then ok "found test user id"; else bad "found test user id" "$U"; fi
+if [ -n "$TARGET_ID" ]; then ok "found test user id"; else bad "found test user id" "$U"; fi
 
 R=$(admin -X POST "$BASE/api/admin/balance" -H 'Content-Type: application/json' \
-  -d "{\"userId\":\"$UID\",\"amount\":5000,\"type\":\"credit\",\"note\":\"test credit\"}")
+  -d "{\"userId\":\"$TARGET_ID\",\"amount\":5000,\"type\":\"credit\",\"note\":\"test credit\"}")
 jcheck "credit 5000" "$R" "d.get('success') and abs(d['balance']-5000)<0.01"
 
 R=$(admin -X POST "$BASE/api/admin/balance" -H 'Content-Type: application/json' \
-  -d "{\"userId\":\"$UID\",\"amount\":1200,\"type\":\"debit\"}")
+  -d "{\"userId\":\"$TARGET_ID\",\"amount\":1200,\"type\":\"debit\"}")
 jcheck "debit 1200 leaves 3800" "$R" "abs(d['balance']-3800)<0.01"
 
 R=$(admin -X POST "$BASE/api/admin/balance" -H 'Content-Type: application/json' \
-  -d "{\"userId\":\"$UID\",\"amount\":9999999,\"type\":\"debit\"}")
+  -d "{\"userId\":\"$TARGET_ID\",\"amount\":9999999,\"type\":\"debit\"}")
 jcheck "debit beyond balance is refused" "$R" "d.get('error')"
 
 R=$(admin -X POST "$BASE/api/admin/balance" -H 'Content-Type: application/json' \
-  -d "{\"userId\":\"$UID\",\"amount\":-50,\"type\":\"credit\"}")
+  -d "{\"userId\":\"$TARGET_ID\",\"amount\":-50,\"type\":\"credit\"}")
 jcheck "negative amount is refused" "$R" "d.get('error')"
 
 R=$(admin -X POST "$BASE/api/admin/balance" -H 'Content-Type: application/json' \
-  -d "{\"userId\":\"$UID\",\"amount\":100,\"type\":\"nonsense\"}")
+  -d "{\"userId\":\"$TARGET_ID\",\"amount\":100,\"type\":\"nonsense\"}")
 jcheck "unknown action is refused" "$R" "d.get('error')"
 
 R=$(admin -X POST "$BASE/api/admin/balance" -H 'Content-Type: application/json' \
@@ -155,42 +171,45 @@ jcheck "missing upi id is refused" "$R" "d.get('error')"
 R=$(api -X POST "$BASE/api/withdraw/request" -H 'Content-Type: application/json' \
   -d '{"amount":1000,"method":"bank","bank":{"accountHolder":"E2E","accountNumber":"1234567890","ifsc":"TEST0000001","bankName":"Test Bank"}}')
 jcheck "valid request is accepted" "$R" "d.get('success')"
-WID=$(python3 -c "
-import json,sys
-print(json.loads('''$R''').get('withdrawalId',''))
-" 2>/dev/null)
+WID=$(printf '%s' "$R" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("withdrawalId",""))')
 jcheck "balance drops to 2800" "$R" "abs(d.get('balance',0)-2800)<0.01"
 
 R=$(api "$BASE/api/auth/me")
 jcheck "held balance is tracked separately (1000)" "$R" "abs(d['user']['heldBalance']-1000)<0.01"
 jcheck "spendable balance excludes the hold" "$R" "abs(d['user']['balance']-2800)<0.01"
 
+# 2800 is still spendable, so this must succeed: the hold is tracked apart from
+# the balance rather than being deducted twice.
 R=$(api -X POST "$BASE/api/withdraw/request" -H 'Content-Type: application/json' \
   -d '{"amount":2800,"method":"upi","bank":{"upiId":"a@b"}}')
-jcheck "held money cannot be requested twice" "$R" "d.get('success') is not True"
+jcheck "spendable balance is still requestable while held" "$R" "d.get('success') is True"
+jcheck "spendable balance now zero" "$R" "abs(d.get('balance',0))<0.01"
+WID2=$(printf '%s' "$R" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("withdrawalId",""))')
 
-head_ "8. Admin resolves the withdrawal"
+R=$(api "$BASE/api/auth/me")
+jcheck "both requests are on hold (3800)" "$R" "abs(d['user']['heldBalance']-3800)<0.01"
+
+# Nothing spendable is left, so a further request must bounce.
+R=$(api -X POST "$BASE/api/withdraw/request" -H 'Content-Type: application/json' \
+  -d '{"amount":100,"method":"upi","bank":{"upiId":"a@b"}}')
+jcheck "no balance left to hold again" "$R" "d.get('error')"
+
+head_ "8. Admin resolves the withdrawals"
 R=$(admin -X POST "$BASE/api/admin/withdrawal" -H 'Content-Type: application/json' \
   -d "{\"id\":\"$WID\",\"action\":\"paid\",\"note\":\"UTR123\"}")
 jcheck "mark paid succeeds" "$R" "d.get('success')"
-jcheck "hold released after payout (0)" "$R" "abs(d.get('heldBalance',-1))<0.01"
-jcheck "balance stays 1800 after payout" "$R" "abs(d.get('balance',0)-1800)<0.01"
+jcheck "only this hold is released (2800 left)" "$R" "abs(d.get('heldBalance',-1)-2800)<0.01"
+jcheck "balance unchanged by payout (0)" "$R" "abs(d.get('balance',0))<0.01"
 
 R=$(admin -X POST "$BASE/api/admin/withdrawal" -H 'Content-Type: application/json' \
   -d "{\"id\":\"$WID\",\"action\":\"paid\"}")
 jcheck "cannot resolve the same request twice" "$R" "d.get('error')"
 
-R=$(api -X POST "$BASE/api/withdraw/request" -H 'Content-Type: application/json' \
-  -d '{"amount":500,"method":"upi","bank":{"upiId":"a@b"}}')
-WID2=$(python3 -c "
-import json,sys
-print(json.loads('''$R''').get('withdrawalId',''))
-" 2>/dev/null)
-jcheck "second withdrawal accepted" "$R" "d.get('success')"
-
 R=$(admin -X POST "$BASE/api/admin/withdrawal" -H 'Content-Type: application/json' \
   -d "{\"id\":\"$WID2\",\"action\":\"rejected\",\"note\":\"test reject\"}")
-jcheck "reject refunds the hold" "$R" "d.get('success') and abs(d['balance']-1800)<0.01"
+jcheck "reject succeeds" "$R" "d.get('success')"
+jcheck "reject refunds the hold into the balance" "$R" "abs(d['balance']-2800)<0.01"
+jcheck "no holds left after reject" "$R" "abs(d['heldBalance'])<0.01"
 
 R=$(admin -X POST "$BASE/api/admin/withdrawal" -H 'Content-Type: application/json' \
   -d '{"id":"000000000000000000000000","action":"paid"}')
@@ -202,7 +221,7 @@ jcheck "unknown action is refused" "$R" "d.get('error')"
 
 head_ "9. Wallet reads"
 R=$(api "$BASE/api/wallet/summary")
-jcheck "summary reports the final balance" "$R" "abs(d.get('totalAssets',0)-1800)<0.01"
+jcheck "summary reports the final balance" "$R" "abs(d.get('totalAssets',0)-2800)<0.01"
 
 R=$(api "$BASE/api/wallet/transactions")
 jcheck "transactions list is returned" "$R" "len(d.get('transactions',[]))>0"
@@ -237,7 +256,8 @@ jcheck "new password works" "$R" "d.get('success')"
 head_ "11. Razorpay guards (no keys configured)"
 R=$(api -X POST "$BASE/api/razorpay/order" -H 'Content-Type: application/json' \
   -d '{"amount":100,"method":"upi"}')
-jcheck "order route answers safely without keys" "$R" "d.get('success') is not None"
+# Without keys the route must fail closed rather than pretend to have made an order.
+jcheck "order route refuses to run without keys" "$R" "d.get('success') is not True and 'configur' in d.get('error','').lower()"
 
 R=$(api -X POST "$BASE/api/razorpay/verify" -H 'Content-Type: application/json' \
   -d '{"razorpay_order_id":"order_x","razorpay_payment_id":"pay_x","razorpay_signature":"sig"}')

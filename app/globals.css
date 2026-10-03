@@ -205,6 +205,50 @@ body {
   text-decoration: none;
 }
 
+/* Form controls
+   style.css declares `.form-control { border: 0 }` and then tries to follow it
+   with `border: 1px solid linear-gradient(...)`, which is invalid CSS and gets
+   dropped — so inputs end up with no border and vanish into the white card.
+   Give them a real edge, and keep their green focus ring. */
+.form-control,
+input.form-control,
+select.form-control,
+textarea.form-control {
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background-color: #fff;
+  color: #333;
+}
+
+.form-control::placeholder {
+  color: #999;
+}
+
+.form-control:focus {
+  border-color: #28a745;
+  box-shadow: none;
+  outline: none;
+}
+
+/* Referral link box on /team */
+.referInput {
+  flex: 1;
+  min-width: 170px;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  background: #fff;
+  color: #333;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.referInput:focus {
+  border-color: #28a745;
+  outline: none;
+}
+
 .gsa-error {
   color: #dc3545;
   font-size: 13px;

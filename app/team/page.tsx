@@ -50,8 +50,7 @@ export default function Team() {
         <div className="banyue banyue--tight">
           <div className="d-flex align-items-center flex-wrap">
             <input
-              className="form-control mr-2"
-              style={{ flex: 1, minWidth: 180 }}
+              className="referInput mr-2"
               readOnly
               value={referralUrl}
               onFocus={(e) => e.currentTarget.select()}
